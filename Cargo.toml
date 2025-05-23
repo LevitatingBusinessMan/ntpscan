@@ -6,3 +6,4 @@ authors = ["Rein Fernhout (LevitatingBusinessMan)"]
 
 [dependencies]
 clap = { version = "4.5.38", features = ["derive"] }
+nix = { version = "0.30.1", features = ["uio", "socket", "net"] }

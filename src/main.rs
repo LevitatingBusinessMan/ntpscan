@@ -1,46 +1,41 @@
+#![feature(file_buffered)]
 use clap::Parser;
-use clap::ValueHint::*;
+use std::io;
+use std::fs;
+use std::io::BufRead;
+use std::os::fd::AsRawFd;
 
-static HELP_TEMPLATE: &'static str = "\
-{before-help}{name} {version}
-{about}
-by {author}
+mod send;
+mod socket;
+mod args;
+mod receive;
+mod packets;
 
-{usage-heading} {usage}
+fn main() -> io::Result<()> {
+    let args = args::Args::parse();
+    if args.verbose > 0 {
+        println!("ntpscan was executed with the following arguments:\n{:?}", args);
+    }
+    let targets = if args.target.is_some() {
+        args.target.unwrap()
+    } else {
+        let path = args.iplist.expect("Neither TARGET or iplist is set");
+        let file = fs::File::open_buffered(path)?;
+        // collecting isn't a great idea
+        file.lines().map(|l| l.expect("malformed line")).collect()
+    };
 
-{all-args}{after-help}
-";
+    let sockfd = socket::setup_socket().expect("Failed to bind UDP socket");
 
-#[derive(clap::Parser, Debug)]
-#[command(version, author, long_about = None, help_template=HELP_TEMPLATE)]
-/// Tool for scanning ntp servers
-struct Args {
-    /// Targets to scan
-    #[arg(long, value_hint=FilePath)]
-    #[clap(group = "input")]
-    iplist: Option<String>,
+    // Some socket test code
+    use nix::sys::socket::*;
+    use std::str::FromStr;
+    sendto(sockfd.as_raw_fd(), packets::STANDARD_CLIENT_MODE, &SockaddrIn::from_str("127.0.0.1:123").unwrap(), MsgFlags::empty())?;
+    std::thread::sleep(std::time::Duration::new(1,0));
+    let mut recvbuf: [u8; 1024] = [0; 1024];
+    let (nread, src) = recvfrom::<SockaddrIn>(sockfd.as_raw_fd(), &mut recvbuf).expect("Failed to recvfrom");
 
-    /// Blocklist
-    #[arg(long, value_hint=FilePath)]
-    blocklist: Option<String>,
+    println!("{nread} bytes from {src:?}\n{recvbuf:x?}");
 
-    /// Bandwidth limit
-    #[arg(long, short)]
-    #[clap(group = "limit")]
-    bandwidth: Option<String>,
-
-    /// Packets per second
-    #[arg(long, short)]
-    #[clap(group = "limit")]
-    rate: Option<u32>,
-
-    /// Targets to scan
-    #[arg(value_hint=Hostname)]
-    #[clap(group = "input")]
-    target: Option<Vec<String>>,
-}
-
-fn main() {
-    let args = Args::parse();
-    println!("{:?}", args);
+    Ok(())
 }
