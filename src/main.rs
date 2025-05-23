@@ -35,7 +35,10 @@ fn main() -> io::Result<()> {
     let mut recvbuf: [u8; 1024] = [0; 1024];
     let (nread, src) = recvfrom::<SockaddrIn>(sockfd.as_raw_fd(), &mut recvbuf).expect("Failed to recvfrom");
 
-    println!("{nread} bytes from {src:?}\n{recvbuf:x?}");
+    println!("{nread} bytes from {src:?}\n{:x?}", &recvbuf[0..nread]);
+    println!("{:?}", packets::parse(&recvbuf[0..nread]).unwrap());
+
+    print!("{:?}", packets::parse(packets::STANDARD_CLIENT_MODE).unwrap());
 
     Ok(())
 }
