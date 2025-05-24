@@ -30,15 +30,16 @@ fn main() -> io::Result<()> {
     // Some socket test code
     use nix::sys::socket::*;
     use std::str::FromStr;
-    sendto(sockfd.as_raw_fd(), packets::STANDARD_CLIENT_MODE, &SockaddrIn::from_str("127.0.0.1:123").unwrap(), MsgFlags::empty())?;
+    let next_ip = targets.first().expect("No targets");
+    sendto(sockfd.as_raw_fd(), packets::STANDARD_CLIENT_MODE, &SockaddrIn::from_str(&format!("{}:123", next_ip)).unwrap(), MsgFlags::empty())?;
     std::thread::sleep(std::time::Duration::new(1,0));
     let mut recvbuf: [u8; 1024] = [0; 1024];
     let (nread, src) = recvfrom::<SockaddrIn>(sockfd.as_raw_fd(), &mut recvbuf).expect("Failed to recvfrom");
 
     println!("{nread} bytes from {src:?}\n{:x?}", &recvbuf[0..nread]);
-    println!("{:?}", packets::parse(&recvbuf[0..nread]).unwrap());
+    println!("{:#?}", packets::parse(&recvbuf[0..nread]).unwrap());
 
-    print!("{:?}", packets::parse(packets::STANDARD_CLIENT_MODE).unwrap());
+    print!("{:#?}", packets::parse(packets::STANDARD_CLIENT_MODE).unwrap());
 
     Ok(())
 }
