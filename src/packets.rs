@@ -1,6 +1,7 @@
 use core::array::TryFromSliceError;
 use std::fmt;
 use nix::sys::time::TimeSpec;
+use chrono::{Local, TimeZone};
 
 /// Client mode 3 packet used in [zmap](https://github.com/zmap/zmap/blob/main/examples/udp-probes/ntp_123.pkt) and nmap.
 pub static STANDARD_CLIENT_MODE: &'static [u8] = &[
@@ -11,6 +12,7 @@ pub static STANDARD_CLIENT_MODE: &'static [u8] = &[
 ];
 
 #[derive(Clone)]
+// TODO I might prefer it if timestamps were [u32; 2]
 pub struct NTPPacket {
     leap: u8,
     version: u8,
@@ -87,9 +89,8 @@ pub fn ntp_timestamp_to_timespec(timestamp: [u8; 8]) -> TimeSpec {
     let seconds = u32::from_be_bytes(timestamp[0..4].try_into().unwrap());
 
     // Accomodate for 70 year offset with UNIX_EPOCH
-    //let seconds = (seconds as i64) - (EPOCH_OFFSET as i64);
-    let seconds = seconds as i64;
-
+    let seconds = (seconds as i64) - (EPOCH_OFFSET as i64);
+    
     let fraction = u32::from_be_bytes(timestamp[4..8].try_into().unwrap()) as u64;
     
     let nanoseconds = ((fraction * 10u64.pow(9)) >> 32) as i64;
@@ -114,11 +115,21 @@ impl fmt::Debug for NTPPacket {
             .field("refid", &self.refid);  
 
         if alternate {
-            dbgstrct
-                .field("reftime", &ntp_timestamp_to_timespec(self.reftime.to_be_bytes()).to_string())
-                .field("org", &ntp_timestamp_to_timespec(self.org.to_be_bytes()).to_string())
-                .field("rec", &ntp_timestamp_to_timespec(self.rec.to_be_bytes()).to_string())
-                .field("xmt", &ntp_timestamp_to_timespec(self.xmt.to_be_bytes()).to_string());
+            let reftime = ntp_timestamp_to_timespec(self.reftime.to_be_bytes());
+            let reftime = Local.timestamp_opt(reftime.tv_sec(), reftime.tv_nsec() as u32).single();
+            dbgstrct.field("reftime", &reftime.map(|dt| dt.to_rfc3339()).unwrap_or(format!("{}", self.reftime)));
+
+            let org = ntp_timestamp_to_timespec(self.org.to_be_bytes());
+            let org = Local.timestamp_opt(org.tv_sec(), org.tv_nsec() as u32).single();
+            dbgstrct.field("org", &org.map(|dt| dt.to_rfc3339()).unwrap_or(format!("{}", self.org)));
+
+            let rec = ntp_timestamp_to_timespec(self.rec.to_be_bytes());
+            let rec = Local.timestamp_opt(rec.tv_sec(), rec.tv_nsec() as u32).single();
+            dbgstrct.field("rec", &rec.map(|dt| dt.to_rfc3339()).unwrap_or(format!("{}", self.rec)));
+
+            let xmt = ntp_timestamp_to_timespec(self.xmt.to_be_bytes());
+            let xmt: Option<chrono::DateTime<Local>> = Local.timestamp_opt(xmt.tv_sec(), xmt.tv_nsec() as u32).single();
+            dbgstrct.field("xmt", &xmt.map(|dt| dt.to_rfc3339()).unwrap_or(format!("{}", self.xmt)));
         } else {
             dbgstrct
                 .field("reftime", &self.reftime)
