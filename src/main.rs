@@ -1,5 +1,4 @@
 #![feature(file_buffered)]
-#![feature(impl_trait_in_bindings)]
 use clap::Parser;
 use nix::errno::Errno;
 use nix::poll::poll;
