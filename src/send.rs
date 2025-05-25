@@ -3,7 +3,7 @@ use nix::sys::socket::{sendto, MsgFlags, SockaddrLike};
 
 use crate::packets::NTPPacket;
 
-// TODO sendmmsgs
+// TODO sendmmsgs could be useful
 /// send many packets to many adresses
 pub fn sendmany<T: AsRawFd>(pks: &[NTPPacket], fd: T, addrs: &[&dyn SockaddrLike]) -> nix::Result<()>{
     for pk in pks {

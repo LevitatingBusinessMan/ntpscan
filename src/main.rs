@@ -1,8 +1,10 @@
 #![feature(file_buffered)]
 use clap::Parser;
 use nix::sys::socket::SockaddrIn;
+use results::ScanResult;
 use std::fs;
 use std::io::BufRead;
+use std::io::Write;
 use std::str::FromStr;
 
 mod send;
@@ -11,6 +13,7 @@ mod args;
 mod receive;
 mod packets;
 mod identify;
+mod results;
 
 fn main() -> anyhow::Result<()> {
     let args = args::Args::parse();
@@ -26,9 +29,34 @@ fn main() -> anyhow::Result<()> {
         Box::new(file.lines().map(|l| l.expect("malformed line")))
     };
 
+    let mut results = vec![];
+
     for target in targets {
-        let ip = SockaddrIn::from_str(&format!("{target}:123"))?;
-        identify::version_check(&ip, args.verbose)?;
+        let addr = SockaddrIn::from_str(&format!("{target}:123"))?;
+        let (vs, guess) = identify::version_check(&addr, args.verbose, 2)?;
+        results.push(ScanResult {
+            ip: addr.ip(),
+            daemon_guess: guess,
+            versions: vs,
+        });
+    }
+
+    if let Some(path) = args.output_file {
+        let mut file = fs::OpenOptions::new()
+            .create(true)
+            .write(true)
+            .open(path)?;
+        match args.output_format {
+            args::OutputFormat::CSV => {
+                file.write(ScanResult::csv_header().as_bytes())?;
+                file.write(b"\n")?;
+                for res in results {
+                    file.write(res.csv().as_bytes())?;
+                    file.write(b"\n")?;
+                }
+            },
+            _ => todo!(),
+        }
     }
 
     Ok(())

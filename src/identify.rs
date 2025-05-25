@@ -13,12 +13,12 @@ use crate::socket;
 use crate::packets::NTPPacket;
 use crate::send;
 
-pub fn version_check(target: &SockaddrIn, verbosity: u8) -> anyhow::Result<&'static str> {
+pub fn version_check(target: &SockaddrIn, verbosity: u8, retries: u8) -> anyhow::Result<(Vec<u8>, &'static str)> {
     use nix::sys::socket::SockaddrIn;
 
     let versions = [1,3,7];
 
-    let maxretries = 2;
+    let maxretries = retries;
     let mut retries = HashMap::<u8, u8>::from(versions.map(|vi| (vi, 0)));
     let mut discovered_versions = vec![];
 
@@ -59,10 +59,9 @@ pub fn version_check(target: &SockaddrIn, verbosity: u8) -> anyhow::Result<&'sta
                         if verbosity > 1 {
                             println!("{nread} bytes from {:?}", src.unwrap().ip());
                             println!("{pkt:#?}");
-                            println!("");
                         }
                         if verbosity > 0 {
-                            println!("target responded with version {}", pkt.version);
+                            println!("Target responded with version {}", pkt.version);
                         }
                         if !discovered_versions.contains(&pkt.version) {
                             discovered_versions.push(pkt.version);
@@ -99,7 +98,7 @@ pub fn version_check(target: &SockaddrIn, verbosity: u8) -> anyhow::Result<&'sta
     discovered_versions.sort();
 
     if verbosity > 0 {
-        println!("target responded with versions {discovered_versions:?}");
+        println!("Target responded with versions {discovered_versions:?}");
     }
 
     let guess = match discovered_versions.as_slice() {
@@ -112,5 +111,5 @@ pub fn version_check(target: &SockaddrIn, verbosity: u8) -> anyhow::Result<&'sta
 
     println!("Guessing daemon is: {guess} ({})", target.ip());
 
-    Ok(guess)
+    Ok((discovered_versions, guess))
 }
