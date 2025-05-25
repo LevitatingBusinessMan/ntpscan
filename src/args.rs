@@ -1,4 +1,3 @@
-use clap::Parser;
 use clap::ValueEnum;
 use clap::ValueHint::*;
 
@@ -55,6 +54,14 @@ pub struct Args {
     /// Do not send packets
     #[arg(long, action=clap::ArgAction::SetTrue)]
     pub dry_run: bool,
+
+    // /// Attempt daemon identification
+    // #[arg(long, action=clap::ArgAction::SetTrue)]
+    // pub identify: bool,
+
+    // /// Do not attempt daemon identification
+    // #[arg(long, action=clap::ArgAction::SetFalse)]
+    // pub no_identify: bool,
 }
 
 #[derive(ValueEnum, Clone, Debug)]

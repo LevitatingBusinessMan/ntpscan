@@ -1,7 +1,4 @@
-use std::io;
-use std::net::Ipv4Addr;
-use std::os::fd::{AsRawFd, OwnedFd};
-use std::str::FromStr;
+use std::os::fd::OwnedFd;
 use nix::errno::Errno;
 use nix::sys::socket::*;
 
