@@ -4,7 +4,7 @@ use nix::sys::time::TimeSpec;
 use chrono::{Local, TimeZone};
 
 /// Client mode 3 packet used in [zmap](https://github.com/zmap/zmap/blob/main/examples/udp-probes/ntp_123.pkt) and nmap.
-pub static STANDARD_CLIENT_MODE: &'static [u8] = &[
+pub static NMAP_CLIENT_MODE: &'static [u8] = &[
     0xe3, 0x00, 0x04, 0xfa, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00,
     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -14,22 +14,62 @@ pub static STANDARD_CLIENT_MODE: &'static [u8] = &[
 #[derive(Clone)]
 // TODO I might prefer it if timestamps were [u32; 2]
 pub struct NTPPacket {
-    leap: u8,
-    version: u8,
-    mode: u8,
-    stratum: u8,
-    poll: i8,
-    precision: i8,
-    rootdelay: u32,
-    rootdisp: u32,
-    refid: u32,
-    reftime: u64,
-    org: u64,
-    rec: u64,
-    xmt: u64,
-    //dst: u8,
-    keyid: Option<u32>,
-    dgst: Option<u128>,
+    pub leap: u8,
+    pub version: u8,
+    pub mode: u8,
+    pub stratum: u8,
+    pub poll: i8,
+    pub precision: i8,
+    pub rootdelay: u32,
+    pub rootdisp: u32,
+    pub refid: u32,
+    pub reftime: u64,
+    pub org: u64,
+    pub rec: u64,
+    pub xmt: u64,
+    //pub dst: u8,
+    pub keyid: Option<u32>,
+    pub dgst: Option<u128>,
+}
+
+impl NTPPacket {
+   pub fn pack(&self) -> [u8; 48] {
+        let mut msg = [0; 48];
+        msg[0] = (self.leap << 6) ^ (self.version << 3) ^ (self.mode);
+        msg[1] = self.stratum;
+        msg[2] = self.poll as u8;
+        msg[3] = self.precision as u8;
+        msg[4..8].copy_from_slice(&self.rootdelay.to_be_bytes());
+        msg[8..12].copy_from_slice(&self.rootdisp.to_be_bytes());
+        msg[12..16].copy_from_slice(&self.refid.to_be_bytes());
+        msg[16..24].copy_from_slice(&self.reftime.to_be_bytes());
+        msg[24..32].copy_from_slice(&self.org.to_be_bytes());
+        msg[32..40].copy_from_slice(&self.rec.to_be_bytes());
+        msg[40..48].copy_from_slice(&self.xmt.to_be_bytes());
+        if self.keyid.is_some() || self.dgst.is_some() { todo!() };
+        msg
+    }
+
+    pub fn empty() -> NTPPacket {
+        NTPPacket {
+            leap: 0,
+            version: 0,
+            mode: 0,
+            stratum: 0,
+            poll: 0,
+            precision: 0,
+            rootdelay: 0,
+            rootdisp: 0,
+            refid: 0,
+            reftime: 0,
+            org: 0,
+            rec: 0,
+            xmt: 0,
+            keyid: None,
+            dgst: None,
+        }
+    }
+
 }
 
 pub fn parse(data: &[u8]) -> Result<NTPPacket, TryFromSliceError> {
@@ -146,5 +186,5 @@ impl fmt::Debug for NTPPacket {
 
 #[test]
 fn parse_standard_packet() {
-    parse(STANDARD_CLIENT_MODE).unwrap();
+    parse(NMAP_CLIENT_MODE).unwrap();
 }
