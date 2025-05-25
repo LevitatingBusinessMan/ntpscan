@@ -10,7 +10,7 @@ mod socket;
 mod args;
 mod receive;
 mod packets;
-mod versions;
+mod identify;
 
 fn main() -> anyhow::Result<()> {
     let args = args::Args::parse();
@@ -28,7 +28,7 @@ fn main() -> anyhow::Result<()> {
 
     for target in targets {
         let ip = SockaddrIn::from_str(&format!("{target}:123"))?;
-        versions::version_check(&ip, args.verbose)?;
+        identify::version_check(&ip, args.verbose)?;
     }
 
     Ok(())
