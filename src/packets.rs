@@ -22,7 +22,7 @@ pub struct NTPPacket {
     pub precision: i8,
     pub rootdelay: u32,
     pub rootdisp: u32,
-    pub refid: u32,
+    pub refid: [u8; 4],
     pub reftime: u64,
     pub org: u64,
     pub rec: u64,
@@ -41,7 +41,7 @@ impl NTPPacket {
         msg[3] = self.precision as u8;
         msg[4..8].copy_from_slice(&self.rootdelay.to_be_bytes());
         msg[8..12].copy_from_slice(&self.rootdisp.to_be_bytes());
-        msg[12..16].copy_from_slice(&self.refid.to_be_bytes());
+        msg[12..16].copy_from_slice(&self.refid);
         msg[16..24].copy_from_slice(&self.reftime.to_be_bytes());
         msg[24..32].copy_from_slice(&self.org.to_be_bytes());
         msg[32..40].copy_from_slice(&self.rec.to_be_bytes());
@@ -60,7 +60,7 @@ impl NTPPacket {
             precision: 0,
             rootdelay: 0,
             rootdisp: 0,
-            refid: 0,
+            refid: [0; 4],
             reftime: 0,
             org: 0,
             rec: 0,
@@ -68,6 +68,10 @@ impl NTPPacket {
             keyid: None,
             dgst: None,
         }
+    }
+
+    pub fn refidstr(&self) -> Result<&str, std::str::Utf8Error> {
+        str::from_utf8(&self.refid)
     }
 
 }
@@ -81,7 +85,7 @@ pub fn parse(data: &[u8]) -> Result<NTPPacket, TryFromSliceError> {
     let precision = data[3] as i8;
     let rootdelay = u32::from_be_bytes(data[4..8].try_into()?);
     let rootdisp = u32::from_be_bytes(data[8..12].try_into()?);
-    let refid = u32::from_be_bytes(data[12..16].try_into()?);
+    let refid = data[12..16].try_into()?;
     let reftime = u64::from_be_bytes(data[16..24].try_into()?);
     let org = u64::from_be_bytes(data[24..32].try_into()?);
     let rec = u64::from_be_bytes(data[32..40].try_into()?);

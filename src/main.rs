@@ -1,6 +1,12 @@
 #![feature(file_buffered)]
+use anyhow::bail;
+use anyhow::Error;
+use anyhow::Result;
 use clap::Parser;
+use nix::sys::socket::SockFlag;
 use nix::sys::socket::SockaddrIn;
+use nix::sys::socket::SockaddrIn6;
+use nix::sys::socket::SockaddrLike;
 use results::ScanResult;
 use std::fs;
 use std::io::BufRead;
@@ -32,10 +38,17 @@ fn main() -> anyhow::Result<()> {
     let mut results = vec![];
 
     for target in targets {
-        let addr = SockaddrIn::from_str(&format!("{target}:123"))?;
-        let (vs, guess) = identify::version_check(&addr, args.verbose, 2)?;
+        let addr: Box<dyn SockaddrLike>;
+        if let Ok(addr4) = SockaddrIn::from_str(&format!("{target}:123")) {
+            addr = Box::new(addr4);
+        } else if let Ok(addr6) = SockaddrIn6::from_str(&format!("[{target}]:123")) {
+            addr = Box::new(addr6);
+        } else {
+            bail!("Invalid IPv4 or Ipv6 {target}");
+        };
+        let (vs, guess) = identify::version_check(addr.as_ref(), args.verbose, args.retries, &target)?;
         results.push(ScanResult {
-            ip: addr.ip(),
+            ip: target,
             daemon_guess: guess,
             versions: vs,
         });

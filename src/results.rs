@@ -1,7 +1,5 @@
-use std::net::Ipv4Addr;
-
 pub struct ScanResult {
-    pub ip: Ipv4Addr,
+    pub ip: String,
     /// what versions does it accept
     pub versions: Vec<u8>,
     pub daemon_guess: &'static str,

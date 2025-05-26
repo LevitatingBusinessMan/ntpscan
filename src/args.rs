@@ -19,15 +19,15 @@ pub struct Args {
     #[arg(long, value_hint=FilePath, group="input")]
     pub iplist: Option<String>,
 
-    /// Blocklist (other than default)
+    /// Blocklist (other than default) (disabled)
     #[arg(long, value_hint=FilePath)]
     pub blocklist: Option<String>,
 
-    /// Bandwidth limit
+    /// Bandwidth limit (disabled)
     #[arg(long, short, group="limit")]
     pub bandwidth: Option<String>,
 
-    /// Packets per second
+    /// Packets per second (disabled)
     #[arg(long, short, group="limit")]
     pub rate: Option<u32>,
 
@@ -35,11 +35,15 @@ pub struct Args {
     #[arg(value_hint=Hostname, group="input", required=true)]
     pub target: Option<Vec<String>>,
 
-    /// Threads
+    /// Threads (disabled)
     #[arg(long, short, default_value_t=2)]
     pub threads: u8,
 
-    /// Output format
+    /// How often to retry sending a packet
+    #[arg(long, default_value_t=2)]
+    pub retries: u8,
+
+    /// Output format (disabled)
     #[arg(value_enum, long, short='f', default_value_t=OutputFormat::Plain)]
     pub output_format: OutputFormat,
 
@@ -51,7 +55,7 @@ pub struct Args {
     #[arg(short, long, action=clap::ArgAction::Count)]
     pub verbose: u8,
 
-    /// Do not send packets
+    /// Do not send packets (disabled)
     #[arg(long, action=clap::ArgAction::SetTrue)]
     pub dry_run: bool,
 
