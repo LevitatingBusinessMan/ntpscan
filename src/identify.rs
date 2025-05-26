@@ -2,7 +2,6 @@ use std::collections::HashMap;
 use std::os::fd::AsFd;
 use std::os::fd::AsRawFd;
 use std::time::Duration;
-use anyhow::anyhow;
 use nix::errno::Errno;
 use nix::poll::PollFd;
 use nix::poll::PollFlags;

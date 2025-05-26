@@ -40,7 +40,7 @@ pub struct Args {
     pub threads: u8,
 
     /// How often to retry sending a packet
-    #[arg(long, default_value_t=2)]
+    #[arg(long, default_value_t=1)]
     pub retries: u8,
 
     /// Output format (disabled)
