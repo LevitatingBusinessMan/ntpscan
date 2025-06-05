@@ -2,7 +2,7 @@ use std::os::fd::AsRawFd;
 use std::time::Duration;
 use nix::sys::socket::{sendto, MsgFlags, SockaddrLike};
 
-use crate::packets::NTPPacket;
+use crate::{packets::NTPPacket, socket::SockAddrInet};
 
 // TODO sendmmsgs could be useful
 /// Send many packets to many adresses.
@@ -27,5 +27,15 @@ pub fn sendmany<T: AsRawFd>(pks: &[NTPPacket], fd: T, addrs: &[&dyn SockaddrLike
         }
     }
 
+    Ok(())
+}
+
+pub fn send<T: AsRawFd>(pkt: &NTPPacket, fd: &T, addr: &SockAddrInet) -> nix::Result<()>{
+    let out: &[u8] = &pkt.pack();
+    let nsent = sendto(fd.as_raw_fd(), &out, addr.as_sockaddr_like(), MsgFlags::empty())?;
+    if nsent != out.len() {
+        // could this occur in practice?
+        return Err(nix::Error::UnknownErrno)
+    }
     Ok(())
 }

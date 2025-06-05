@@ -23,21 +23,17 @@ pub struct Args {
     #[arg(long, value_hint=FilePath)]
     pub blocklist: Option<String>,
 
-    /// Bandwidth limit (disabled)
-    #[arg(long, short, group="limit")]
-    pub bandwidth: Option<String>,
-
-    /// Packets per second (disabled)
-    #[arg(long, short, group="limit")]
-    pub rate: Option<u32>,
-
     /// Targets to scan
     #[arg(value_hint=Hostname, group="input", required=true)]
     pub target: Option<Vec<String>>,
 
-    /// Threads (disabled)
+    /// Threads
     #[arg(long, short, default_value_t=2)]
     pub threads: u8,
+
+    /// Targets per thread
+    #[arg(long, default_value_t=1000)]
+    pub targets_per_thread: usize,
 
     /// How often to retry sending a packet
     #[arg(long, default_value_t=1)]

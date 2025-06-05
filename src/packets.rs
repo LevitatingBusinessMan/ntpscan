@@ -70,8 +70,12 @@ impl NTPPacket {
         }
     }
 
-    pub fn refidstr(&self) -> Result<&str, std::str::Utf8Error> {
-        str::from_utf8(&self.refid)
+    pub fn refidstr(&self) -> Option<&str> {
+        str::from_utf8(&self.refid).ok()
+    }
+
+    pub fn is_kod(&self) -> bool {
+        self.stratum == 0
     }
 
 }
