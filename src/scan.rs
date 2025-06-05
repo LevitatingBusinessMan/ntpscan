@@ -73,7 +73,7 @@ impl ScanState {
                 self.current_type = ScanType::Identify;
                 identify::init(self);
             },
-            ScanType::Identify => todo!(),
+            ScanType::Identify => { self.current_type = ScanType::Done },
             ScanType::Version => todo!(),
             ScanType::Monlist => todo!(),
             ScanType::Done => todo!(),
@@ -140,11 +140,16 @@ impl ScanState {
         }
         vvprintln!("{}: waiting {}s, interval is {}s", self.address, self.timeout_on_rate_kod.as_secs()/2, self.interval.unwrap().as_secs());
     }
+
+    fn to_result(&self) -> ScanResult {
+        ScanResult { daemon_guess: self.daemon_guess.unwrap() }
+    }
+
 }
 
 #[derive(Debug)]
 pub struct ScanResult {
-    pub version_guess: &'static str,
+    pub daemon_guess: &'static str,
 }
 
 pub fn start_thread(targets: Vec<SockAddrInet>, retries: u8, concurrent: usize) -> mpsc::Receiver<ScanResult> {
@@ -186,6 +191,7 @@ fn scan_thread(tx: mpsc::Sender<ScanResult>, targets: &[SockAddrInet], retries: 
     let mut recvbuf: [u8; 1024] = [0; 1024];
 
     'outer: loop {
+        let mut done = vec![];
         vvprintln!("polling...");
         let npoll = poll(&mut pollfds, poll_timeout).expect("poll(2) failed");
         if npoll > 0 {
@@ -217,6 +223,9 @@ fn scan_thread(tx: mpsc::Sender<ScanResult>, targets: &[SockAddrInet], retries: 
                             state.flush(state.choose_sock(sockfd4.as_raw_fd(), sockfd6.as_raw_fd())).expect("error flushing");
                             if matches!(scanstatus, ScanTypeStatus::Done) {
                                 state.start_next_scan();
+                                if matches!(state.current_type, ScanType::Done) {
+                                    done.push(state.address);
+                                }
                             }
                         },
                         None => {
@@ -234,9 +243,20 @@ fn scan_thread(tx: mpsc::Sender<ScanResult>, targets: &[SockAddrInet], retries: 
                 state.flush(state.choose_sock(sockfd4.as_raw_fd(), sockfd6.as_raw_fd())).expect("error flushing");
                 if matches!(scanstatus, ScanTypeStatus::Done) {
                     state.start_next_scan();
+                    if matches!(state.current_type, ScanType::Done) {
+                        done.push(state.address);
+                    }
                 }
             }
         }
+        for a in done {
+            tx.send(states.remove(&a).unwrap().to_result()).unwrap();
+        }
+        
+        if states.is_empty() {
+            break;
+        }
+
     }
 
 }

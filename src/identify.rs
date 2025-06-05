@@ -99,7 +99,7 @@ pub fn timeout(target: &mut ScanState) -> ScanTypeStatus {
     if target.versions.iter().all(|(_vi, vs)| {
         vs.response.is_some() || vs.retries == maxretries
     }) {
-        vvprintln!("{}: identify scan, accepting timeout", target.address);
+        vvprintln!("{}: identify scan is accepting timeout", target.address);
         target.daemon_guess = Some(daemon_guess(target.versions.clone()));
         return ScanTypeStatus::Done;
     }
