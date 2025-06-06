@@ -2,6 +2,8 @@
 use anyhow::bail;
 use anyhow::Error;
 use anyhow::Result;
+use chrono::DateTime;
+use chrono::Local;
 use clap::Parser;
 use nix::sys::socket::SockFlag;
 use nix::sys::socket::SockaddrIn;
@@ -13,6 +15,8 @@ use std::fs;
 use std::io::BufRead;
 use std::io::Write;
 use std::str::FromStr;
+use std::time::Instant;
+use std::time::SystemTime;
 
 mod send;
 mod socket;
@@ -24,6 +28,7 @@ mod results;
 mod scan;
 #[macro_use]
 mod log;
+mod monlist;
 
 fn main() -> anyhow::Result<()> {
     let args = args::Args::parse();
@@ -51,12 +56,22 @@ fn main() -> anyhow::Result<()> {
         addr
     }).collect();
 
+    let start_time = Instant::now();
+
     let rx = scan::start_thread(addresses, args.retries, args.targets_per_thread);
 
     loop {
-        let res = rx.recv().unwrap();
-        println!("{:?}", res);
+        match rx.recv() {
+            Ok(res) => {
+                println!("{:?}", res);  
+            },
+            Err(_) => {
+                break;
+            },
+        }
     }
+
+    println!("Scan ended on {} after {}s", Local::now().format("%A %B %d %Y at %H:%M:%S"), start_time.elapsed().as_secs());
 
     // let mut results = vec![];
 

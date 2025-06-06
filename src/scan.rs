@@ -1,3 +1,4 @@
+use std::cell::Ref;
 use std::collections::HashMap;
 use std::collections::VecDeque;
 use std::os::fd::AsFd;
@@ -37,8 +38,7 @@ enum ScanType {
 pub struct ScanState {
     pub address: SockAddrInet,
     pub daemon_guess: Option<&'static str>,
-    /// key is the version sent,
-    /// value is the retry count, xmt and response
+    /// key is the version sent
     pub versions: HashMap<u8, identify::VersionState>,
     pub timeout_till: Option<SystemTime>,
     pub timeout_on_rate_kod: Duration,
@@ -46,6 +46,8 @@ pub struct ScanState {
     /// the outgoing packet queue, packets placed here
     /// will be sent when the timout allows it
     pub queue: VecDeque<NTPPacket>,
+    /// a record of all received packets
+    pub pkts_received: Vec<NTPPacket>,
     current_type: ScanType,
 }
 
@@ -64,6 +66,7 @@ impl ScanState {
             timeout_on_rate_kod: Duration::from_secs(10),
             interval: None,
             current_type: ScanType::Prepare,
+            pkts_received: vec![],
             queue: VecDeque::new(),
         }
     }
@@ -142,14 +145,30 @@ impl ScanState {
     }
 
     fn to_result(&self) -> ScanResult {
-        ScanResult { daemon_guess: self.daemon_guess.unwrap() }
+        let refidstr = self.pkts_received.first().map(|pk| pk.refidstr());
+        let refid = match refidstr {
+            Some(Some(str)) => Some(RefId::Ascii(str.to_string())),
+            Some(None) => Some(RefId::Other(self.pkts_received.first().unwrap().refid)),
+            None => None,
+        };
+        ScanResult {
+            daemon_guess: self.daemon_guess.unwrap(),
+            refid: refid,
+        }
     }
 
 }
 
 #[derive(Debug)]
+pub enum RefId {
+    Ascii(String),
+    Other([u8; 4]),
+}
+
+#[derive(Debug)]
 pub struct ScanResult {
     pub daemon_guess: &'static str,
+    pub refid: Option<RefId>,
 }
 
 pub fn start_thread(targets: Vec<SockAddrInet>, retries: u8, concurrent: usize) -> mpsc::Receiver<ScanResult> {
@@ -214,6 +233,9 @@ fn scan_thread(tx: mpsc::Sender<ScanResult>, targets: &[SockAddrInet], retries: 
 
                     match states.get_mut(&src) {
                         Some(state) => {
+                            // save packet
+                            state.pkts_received.push(pkt.clone());
+
                             // TODO handle DENY and RSTR
                             if pkt.is_kod() && pkt.refidstr() == Some("RATE") {
                                 vprintln!("{}: Kiss o' Death RATE received", state.address);

@@ -71,7 +71,14 @@ impl NTPPacket {
     }
 
     pub fn refidstr(&self) -> Option<&str> {
-        str::from_utf8(&self.refid).ok()
+        match str::from_utf8(&self.refid) {
+            Ok(str) => if str.is_ascii() {
+                Some(str)
+            } else {
+                None
+            },
+            Err(_) => None,
+        }
     }
 
     pub fn is_kod(&self) -> bool {
