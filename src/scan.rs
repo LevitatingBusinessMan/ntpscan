@@ -1,4 +1,3 @@
-use std::cell::Ref;
 use std::collections::HashMap;
 use std::collections::VecDeque;
 use std::os::fd::AsFd;
@@ -17,11 +16,13 @@ use nix::sys::socket::SockaddrIn;
 use nix::sys::socket::SockaddrIn6;
 use crate::identify;
 use crate::packets;
-use crate::packets::NTPPacket;
-use crate::scan;
+use crate::packets::AnyNTPPacket;
 use crate::send;
 use crate::socket;
 use crate::socket::SockAddrInet;
+use crate::variables;
+use crate::variables::Mode6Variables;
+use crate::variables::VersionRequestStatus;
 use crate::vprintln;
 use crate::vvprintln;
 
@@ -45,9 +46,12 @@ pub struct ScanState {
     pub interval: Option<Duration>,
     /// the outgoing packet queue, packets placed here
     /// will be sent when the timout allows it
-    pub queue: VecDeque<NTPPacket>,
+    pub queue: VecDeque<AnyNTPPacket>,
     /// a record of all received packets
-    pub pkts_received: Vec<NTPPacket>,
+    pub pkts_received: Vec<AnyNTPPacket>,
+    pub version_request_status: VersionRequestStatus,
+    pub mode6_variables: Option<Mode6Variables>,
+    pub maxretries: u32,
     current_type: ScanType,
 }
 
@@ -67,7 +71,11 @@ impl ScanState {
             interval: None,
             current_type: ScanType::Prepare,
             pkts_received: vec![],
+            // TODO remove temporary number
+            maxretries: 1,
             queue: VecDeque::new(),
+            version_request_status: VersionRequestStatus::new(),
+            mode6_variables: None,
         }
     }
     fn start_next_scan(&mut self) {
@@ -76,8 +84,11 @@ impl ScanState {
                 self.current_type = ScanType::Identify;
                 identify::init(self);
             },
-            ScanType::Identify => { self.current_type = ScanType::Done },
-            ScanType::Version => todo!(),
+            ScanType::Identify => { 
+                self.current_type = ScanType::Version;
+                variables::init(self);
+            },
+            ScanType::Version => { self.current_type = ScanType::Done },
             ScanType::Monlist => todo!(),
             ScanType::Done => todo!(),
         }
@@ -116,11 +127,11 @@ impl ScanState {
             true
         }
     }
-    fn recpkt(&mut self, pkt: &NTPPacket) -> ScanTypeStatus {
+    fn recpkt(&mut self, pkt: &AnyNTPPacket) -> ScanTypeStatus {
         match self.current_type {
             ScanType::Prepare => unreachable!(),
             ScanType::Identify => identify::receive(self, pkt),
-            ScanType::Version => todo!(),
+            ScanType::Version => variables::receive(self, pkt),
             ScanType::Monlist => todo!(),
             ScanType::Done => todo!(),
         }
@@ -129,7 +140,7 @@ impl ScanState {
         match self.current_type {
             ScanType::Prepare => unreachable!(),
             ScanType::Identify => identify::timeout(self),
-            ScanType::Version => todo!(),
+            ScanType::Version => variables::timeout(self),
             ScanType::Monlist => todo!(),
             ScanType::Done => todo!(),
         }
@@ -145,10 +156,15 @@ impl ScanState {
     }
 
     fn to_result(&self) -> ScanResult {
-        let refidstr = self.pkts_received.first().map(|pk| pk.refidstr());
-        let refid = match refidstr {
-            Some(Some(str)) => Some(RefId::Ascii(str.to_string())),
-            Some(None) => Some(RefId::Other(self.pkts_received.first().unwrap().refid)),
+        let mode4pkt = self.pkts_received
+            .iter()
+            .filter_map(|p| p.as_standard())
+            .find(|pk| pk.mode == 4);
+        let refid = match mode4pkt {
+            Some(p) => match p.refidstr() {
+                Some(str) => Some(RefId::Ascii(str.to_string())),
+                None => Some(RefId::Other(p.refid)),
+            },
             None => None,
         };
         ScanResult {
@@ -237,9 +253,11 @@ fn scan_thread(tx: mpsc::Sender<ScanResult>, targets: &[SockAddrInet], retries: 
                             state.pkts_received.push(pkt.clone());
 
                             // TODO handle DENY and RSTR
-                            if pkt.is_kod() && pkt.refidstr() == Some("RATE") {
-                                vprintln!("{}: Kiss o' Death RATE received", state.address);
-                                state.handle_rate_kod();
+                            if let AnyNTPPacket::Standard(pkt) = pkt.clone() {
+                                if pkt.is_kod() && pkt.refidstr() == Some("RATE") {
+                                    vprintln!("{}: Kiss o' Death RATE received", state.address);
+                                    state.handle_rate_kod();
+                                }
                             }
                             let scanstatus = state.recpkt(&pkt);
                             state.flush(state.choose_sock(sockfd4.as_raw_fd(), sockfd6.as_raw_fd())).expect("error flushing");

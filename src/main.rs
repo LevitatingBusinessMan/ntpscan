@@ -29,6 +29,7 @@ mod scan;
 #[macro_use]
 mod log;
 mod monlist;
+mod variables;
 
 fn main() -> anyhow::Result<()> {
     let args = args::Args::parse();
