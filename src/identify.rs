@@ -23,7 +23,7 @@ use crate::vvprintln;
 pub fn init(target: &mut ScanState) {
     // we only attempt these versions because they provide the most interesting results,
     // sending too many packets may lead to ratelimiting
-    let versions_to_scan = [1,3,4,7];
+    let versions_to_scan = [0,1,2,3,4,5,6,7];
 
     // push all version packets onto the queue
     for vi in versions_to_scan {
@@ -64,15 +64,15 @@ pub fn receive(target: &mut ScanState, pkt: &AnyNTPPacket) -> ScanTypeStatus {
     match mypkt {
         Some((version_sent, vs)) => {
             match vs.response {
-                Some(_) => println!("{}: received response to version {version_sent} twice?", target.address),
+                Some(_) => vprintln!("{} received duplicate response to version {version_sent}?", target.address),
                 None => {
-                    vprintln!("{}: version {version_sent} was responded to with {}", target.address, pkt.version);
+                    vprintln!("{} version {version_sent} was responded to with {}", target.address, pkt.version);
                     vs.response = Some(pkt.clone());
                 },
             }
         },
         None => {
-            println!("{}: received og timestamp which we did not send?", target.address);
+            println!("{} received og timestamp which we did not send?", target.address);
         },
     }
 
@@ -122,7 +122,7 @@ pub fn timeout(target: &mut ScanState) -> ScanTypeStatus {
         return ScanTypeStatus::Done;
     }
 
-    println!("{} retrying mode 3 version(s)", target.address);
+    vvprintln!("{} retrying mode 3 version(s)", target.address);
 
     for (vi, vs) in &mut target.versions {
         if vs.response.is_none() {
@@ -142,7 +142,7 @@ pub fn timeout(target: &mut ScanState) -> ScanTypeStatus {
 }
 
 pub fn daemon_guess(versions: HashMap<u8, VersionState>) -> &'static str {
-    vvprintln!("attempting daemon_guess using received versions: {}",
+    vprintln!("attempting daemon_guess using received versions: {}",
         versions.iter().map(|(vi,vs)| format!("{} -> {:?}, ", vi, vs.response.as_ref().map(|p| p.version))).collect::<String>()
     );
     if versions.iter().all(|(_vi, vs)| vs.response.is_none()) {

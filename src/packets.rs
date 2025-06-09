@@ -3,6 +3,8 @@ use std::fmt;
 use nix::sys::time::TimeSpec;
 use chrono::{Local, TimeZone};
 
+use crate::vvprintln;
+
 /// Client mode 3 packet used in [zmap](https://github.com/zmap/zmap/blob/main/examples/udp-probes/ntp_123.pkt) and nmap.
 pub static NMAP_CLIENT_MODE: &'static [u8] = &[
     0xe3, 0x00, 0x04, 0xfa, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00,
@@ -86,6 +88,9 @@ impl NTPPacket {
     }
 
     pub fn parse(data: &[u8]) -> Option<NTPPacket> {
+        if data.len() < 48 {
+            return None;
+        }
         let leap = data[0] >> 6;
         let version = (data[0] >> 3) & 0b111;
         let mode = data[0] & 0b111;
@@ -110,7 +115,7 @@ impl NTPPacket {
             None
         };
 
-        if mode == 6 {
+        if mode == 6 || mode == 7 {
             return None
         }
 
@@ -142,13 +147,17 @@ impl NTPPacket {
 pub enum AnyNTPPacket {
     Standard(NTPPacket),
     Control(NtpControlMessage),
+    Private(NtpdPrivatePacket),
     Invalid(Vec<u8>),
 }
 
 pub fn parse(data: &[u8]) -> Option<AnyNTPPacket> {
     match NTPPacket::parse(data) {
         Some(pkt) => Some(AnyNTPPacket::Standard(pkt)),
-        None => NtpControlMessage::parse(data).map(|p| AnyNTPPacket::Control(p)),
+        None => match NtpControlMessage::parse(data) {
+            Some(pkt) => Some(AnyNTPPacket::Control(pkt)),
+            None => NtpdPrivatePacket::parse(data).map(|p| AnyNTPPacket::Private(p)),
+        },
     }
 }
 
@@ -238,7 +247,7 @@ impl NtpControlMessage {
     pub fn pack(&self) -> Vec<u8> {
         let mut msg = vec![];
         msg.push((self.version << 3) ^ 6);
-        let rem = ((if self.response { 1 } else { 0 }) << 2) | ((if self.error { 1 } else { 0 }) << 1) | (if self.more { 1 } else { 0 });
+        let rem = ((self.response as u8) << 2) | ((self.error as u8) << 1) | (self.more as u8);
         msg.push((rem << 5) | self.opcode);
         msg.append(&mut self.sequence.to_be_bytes().to_vec());
         msg.append(&mut self.status.to_be_bytes().to_vec());
@@ -264,11 +273,21 @@ impl NtpControlMessage {
         if data.len() < 10 {
             return None;
         }
-        
+
+        // first two bits should be 0
+        // if data.first().unwrap() & 0b11000000 != 0 {
+        //     return None;
+        // }
+        // commented because I found this to be the leap in v3
+
         // Extract version and mode from first byte
         // Format: 00 + 3-bit version + 3-bit mode
         let version = (data[0] >> 3) & 0x07; // Bits 5-3
         let mode = data[0] & 0x07;           // Bits 2-0
+
+        if mode != 6 {
+            return  None;
+        }
         
         // Extract flags and opcode from second byte
         let second_byte = data[1];
@@ -290,14 +309,11 @@ impl NtpControlMessage {
         
         // Extract assoc_id (bytes 6-7, big-endian u16)
         let assoc_id = u16::from_be_bytes([data[6], data[7]]);
-        
+
         // Extract offset (bytes 8-9, big-endian u16) - we ignore this as it was hardcoded to 0
-        let _offset = u16::from_be_bytes([data[8], data[9]]);
+        let offset = u16::from_be_bytes([data[8], data[9]]);
         
         // Extract count (bytes 10-11, big-endian u16)
-        if data.len() < 12 {
-            return None;
-        }
         let count = u16::from_be_bytes([data[10], data[11]]);
         
         // Verify we have enough data for the payload
@@ -307,7 +323,7 @@ impl NtpControlMessage {
         }
         
         // Extract the actual data payload
-        let payload = data[12..12 + count as usize].to_vec();
+        let payload = data[12 + offset as usize .. 12 + count as usize].to_vec();
         
         Some(Self {
             version,
@@ -364,8 +380,109 @@ impl AnyNTPPacket {
         match self {
             Self::Standard(ntppacket) => ntppacket.pack().to_vec(),
             Self::Control(ntp_control_message) => ntp_control_message.pack().to_vec(),
+            Self::Private(ntpd_private_message) => ntpd_private_message.pack().to_vec(),
             Self::Invalid(pkt) => pkt.to_vec(),
         }
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct NtpdPrivatePacket {
+    pub response: bool,
+    pub more: bool,
+    pub version: u8,
+    pub auth: bool,
+    pub sequence: u8,
+    pub implementation: u8,
+    pub reqcode: u8,
+    pub error: u16,
+    pub nitems: u16,
+    pub size: u16,
+    pub items: Vec<u8>,
+}
+
+pub mod private {
+    pub static XNTPD: u8 = 3;
+    pub static REQ_MON_GETLIST: u8 = 20;
+    pub static REQ_MON_GETLIST_1: u8 = 42;
+}
+
+impl NtpdPrivatePacket {
+
+    pub fn empty() -> Self {
+        Self {
+            response: false,
+            more: false,
+            version: 2,
+            auth: false,
+            sequence: 0,
+            implementation: private::XNTPD,
+            reqcode: 0,
+            error: 0,
+            nitems: 0,
+            size: 0,
+            items: vec![],
+        }
+    }
+    pub fn pack(&self) -> Vec<u8> {
+        let mut msg = vec![];
+        let flags = ((self.response as u8) << 7) | ((self.more as u8) << 6) | (self.version << 3) | 7;
+        msg.push(flags);
+        msg.push((self.auth as u8) << 7 | (self.sequence & 0x7f));
+        msg.push(self.implementation);
+        msg.push(self.reqcode);
+        let err_nitems = ((self.error & 0xf) << 12) | (self.nitems & 0xfff);
+        msg.extend_from_slice(&err_nitems.to_be_bytes());
+        msg.extend_from_slice(&self.size.to_be_bytes());
+        msg.extend_from_slice(&self.items);
+        msg
+    }
+
+    /** The following parse function was generated using Claude 4 Sonnet
+     * with the [NtpdPrivatePacket::pack] function and [NtpdPrivatePacket]
+     * as context. */
+    pub fn parse(data: &[u8]) -> Option<Self> {
+        if data.len() < 8 {
+            return None;
+        }
+        
+        let flags = data[0];
+        let response = (flags & 0x80) != 0;
+        let more = (flags & 0x40) != 0;
+        let version = (flags >> 3) & 0b111;
+        
+        let auth_seq = data[1];
+        let auth = (auth_seq & 0x80) != 0;
+        let sequence = auth_seq & 0x7f;
+        
+        let implementation = data[2];
+        let reqcode = data[3];
+        
+        let err_nitems = u16::from_be_bytes([data[4], data[5]]);
+        let error = (err_nitems >> 12) & 0xf;
+        let nitems = err_nitems & 0xfff;
+        
+        let size = u16::from_be_bytes([data[6], data[7]]);
+        
+        let items = if data.len() > 8 {
+            data[8..].to_vec()
+        } else {
+            vec![]
+        };
+        
+        Some(Self {
+            response,
+            more,
+            version,
+            auth,
+            sequence,
+            implementation,
+            reqcode,
+            error,
+            nitems,
+            size,
+            items,
+        })
     }
 }
 

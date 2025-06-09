@@ -15,6 +15,7 @@ use nix::sys::socket::AddressFamily;
 use nix::sys::socket::SockaddrIn;
 use nix::sys::socket::SockaddrIn6;
 use crate::identify;
+use crate::monlist;
 use crate::packets;
 use crate::packets::AnyNTPPacket;
 use crate::send;
@@ -52,6 +53,7 @@ pub struct ScanState {
     pub version_request_status: VersionRequestStatus,
     pub mode6_variables: Option<Mode6Variables>,
     pub maxretries: u32,
+    pub supports_monlist: bool,
     current_type: ScanType,
 }
 
@@ -76,6 +78,7 @@ impl ScanState {
             queue: VecDeque::new(),
             version_request_status: VersionRequestStatus::new(),
             mode6_variables: None,
+            supports_monlist: false,
         }
     }
     fn start_next_scan(&mut self) {
@@ -88,8 +91,13 @@ impl ScanState {
                 self.current_type = ScanType::Version;
                 variables::init(self);
             },
-            ScanType::Version => { self.current_type = ScanType::Done },
-            ScanType::Monlist => todo!(),
+            ScanType::Version => {
+                self.current_type = ScanType::Monlist;
+                monlist::init(self);
+            },
+            ScanType::Monlist => {
+                self.current_type = ScanType::Done;
+            },
             ScanType::Done => todo!(),
         }
     }
@@ -132,7 +140,7 @@ impl ScanState {
             ScanType::Prepare => unreachable!(),
             ScanType::Identify => identify::receive(self, pkt),
             ScanType::Version => variables::receive(self, pkt),
-            ScanType::Monlist => todo!(),
+            ScanType::Monlist => monlist::receive(self, pkt),
             ScanType::Done => todo!(),
         }
     }
@@ -141,7 +149,7 @@ impl ScanState {
             ScanType::Prepare => unreachable!(),
             ScanType::Identify => identify::timeout(self),
             ScanType::Version => variables::timeout(self),
-            ScanType::Monlist => todo!(),
+            ScanType::Monlist => ScanTypeStatus::Done,
             ScanType::Done => todo!(),
         }
     }
