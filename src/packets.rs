@@ -402,7 +402,8 @@ pub struct NtpdPrivatePacket {
 }
 
 pub mod private {
-    pub static XNTPD: u8 = 3;
+    pub static IMPL_XNTPD_OLD: u8 = 2; // used by ntpd pre ipv6 update
+    pub static IMPL_XNTPD: u8 = 3; // used by ntpd post ipv6 update
     pub static REQ_MON_GETLIST: u8 = 20;
     pub static REQ_MON_GETLIST_1: u8 = 42;
 }
@@ -416,7 +417,7 @@ impl NtpdPrivatePacket {
             version: 2,
             auth: false,
             sequence: 0,
-            implementation: private::XNTPD,
+            implementation: private::IMPL_XNTPD,
             reqcode: 0,
             error: 0,
             nitems: 0,

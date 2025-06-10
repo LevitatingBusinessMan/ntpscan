@@ -76,7 +76,7 @@ pub fn receive(target: &mut ScanState, pkt: &AnyNTPPacket) -> ScanTypeStatus {
         },
     }
 
-    if pkt.is_kod() {
+    if pkt.is_kod() && pkt.refidstr() == Some("RATE") {
         // all unresolved packets should be retransmitted
         // without increasing the retry counter
         for (vi, vs) in &target.versions {
@@ -92,17 +92,20 @@ pub fn receive(target: &mut ScanState, pkt: &AnyNTPPacket) -> ScanTypeStatus {
             }
         } 
     }
-
+    
+    // the following behavior and commented code was properly due to a bug of my own
+    //
     // I have found that on some ntpd versions any subsequent requests are dropped
     // as a temporary? fix we just give all unresolved versions
     // another free try when a response is received
-    target.versions.iter_mut().filter(|(_vi, vs)| vs.response.is_none()
-    ).for_each(|(_vi, vs)| {
-        vs.retries = vs.retries.saturating_sub(1);
-    });
+    // target.versions.iter_mut()
+    // .filter(|(_vi, vs)| vs.response.is_none())
+    // .for_each(|(_vi, vs)| {
+    //     vs.retries = vs.retries.saturating_sub(1);
+    // });
 
     if target.versions.iter().all(|(_, vs)| vs.response.is_some()) {
-        target.daemon_guess = Some(daemon_guess(target.versions.clone()));
+        r#final(target);
         return ScanTypeStatus::Done
     }
 
@@ -118,7 +121,7 @@ pub fn timeout(target: &mut ScanState) -> ScanTypeStatus {
         vs.response.is_some() || vs.retries == target.maxretries
     }) {
         vprintln!("{}: identify scan is accepting timeout", target.address);
-        target.daemon_guess = Some(daemon_guess(target.versions.clone()));
+        r#final(target);
         return ScanTypeStatus::Done;
     }
 
@@ -141,10 +144,20 @@ pub fn timeout(target: &mut ScanState) -> ScanTypeStatus {
 
 }
 
+pub fn r#final(state: &mut ScanState) {
+    let mut versions_vec = state.versions
+        .iter()
+        .collect::<Vec<(&u8, &VersionState)>>();
+    versions_vec.sort_by_key(|(vi,vs)| **vi);
+    let versions_str = versions_vec.iter()
+        .filter_map(|(vi,vs)| if vs.response.is_some() { Some((vi, vs.response.as_ref().unwrap().version)) } else { None })
+        .map(|(vi,vi2)| format!("{}->{}, ", vi, vi2))
+        .collect::<String>();
+    println!("{} responded with versions: {}", state.address, versions_str);
+    state.daemon_guess = Some(daemon_guess(state.versions.clone()));
+}
+
 pub fn daemon_guess(versions: HashMap<u8, VersionState>) -> &'static str {
-    vprintln!("attempting daemon_guess using received versions: {}",
-        versions.iter().map(|(vi,vs)| format!("{} -> {:?}, ", vi, vs.response.as_ref().map(|p| p.version))).collect::<String>()
-    );
     if versions.iter().all(|(_vi, vs)| vs.response.is_none()) {
         return "offline"
     };

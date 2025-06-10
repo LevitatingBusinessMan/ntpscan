@@ -31,7 +31,7 @@ pub fn receive(state: &mut ScanState, pkt: &AnyNTPPacket) -> ScanTypeStatus {
     match pkt {
         AnyNTPPacket::Control(pkt) => {
             if pkt.opcode == 2 {
-                    println!("{} mode 6 variables response: {}", state.address, pkt.datastr()
+                    println!("{} mode 6 variables response: {}", state.address, pkt.datastr().map(|s| s.trim_end_matches(char::is_whitespace))
                         .unwrap_or("failed to convert to utf-8"));
                     state.mode6_variables = Some(Mode6Variables {
                         str: pkt.datastr().unwrap_or("failed to convert to utf-8").to_owned()
@@ -54,7 +54,8 @@ pub fn timeout(state: &mut ScanState) -> ScanTypeStatus {
         let mut msg = NtpControlMessage::empty();
         msg.version = 3;
         msg.opcode = 2;
-        state.queue.push_back(AnyNTPPacket::Control(msg));        state.version_request_status.retries += 1;
+        state.queue.push_back(AnyNTPPacket::Control(msg));
+        state.version_request_status.retries += 1;
         ScanTypeStatus::Continue
     } else {
         vprintln!("{} mode 6 timed out", state.address);

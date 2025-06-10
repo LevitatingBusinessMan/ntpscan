@@ -28,3 +28,13 @@ macro_rules! vvprintln {
         }
     };
 }
+
+
+#[macro_export]
+macro_rules! vvvprintln {
+    ($($arg:tt)*) => {
+        if $crate::log::LEVEL.load(std::sync::atomic::Ordering::Relaxed) > 2 {
+            println!($($arg)*);
+        }
+    };
+}

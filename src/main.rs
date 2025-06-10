@@ -59,7 +59,7 @@ fn main() -> anyhow::Result<()> {
 
     let start_time = Instant::now();
 
-    let rx = scan::start_thread(addresses, args.retries, args.targets_per_thread);
+    let rx = scan::start_thread(addresses, args.retries, args.targets_per_thread, args.poll);
 
     loop {
         match rx.recv() {

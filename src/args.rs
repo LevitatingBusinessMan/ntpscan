@@ -36,8 +36,12 @@ pub struct Args {
     pub targets_per_thread: usize,
 
     /// How often to retry sending a packet
-    #[arg(long, default_value_t=1)]
-    pub retries: u8,
+    #[arg(long, short, default_value_t=1)]
+    pub retries: u32,
+
+    /// How long to wait for a reply (in ms)
+    #[arg(long, short, default_value_t=1000)]
+    pub poll: u32,
 
     /// Output format (disabled)
     #[arg(value_enum, long, short='f', default_value_t=OutputFormat::Plain)]

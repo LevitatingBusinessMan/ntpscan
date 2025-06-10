@@ -27,7 +27,7 @@ pub fn receive(state: &mut ScanState, pkt: &AnyNTPPacket) -> ScanTypeStatus {
                 vprintln!("{} (mode 7) monlist request received a mode 7 response with a different reqcode {:x?}", state.address, pkt.reqcode);
             } else {
                 state.supports_monlist = true;
-                println!("{} received monlist response ({} items)", state.address, pkt.nitems);
+                println!("{} received monlist response!!! ({} items)", state.address, pkt.nitems);
                 return ScanTypeStatus::Done;
             }
         },
@@ -37,4 +37,9 @@ pub fn receive(state: &mut ScanState, pkt: &AnyNTPPacket) -> ScanTypeStatus {
     }
 
     ScanTypeStatus::Continue
+}
+
+pub fn timeout(state: &mut ScanState) -> ScanTypeStatus {
+    vvprintln!("{} monlist scan accepting timeout", state.address);
+    ScanTypeStatus::Done
 }
