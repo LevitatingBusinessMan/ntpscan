@@ -293,14 +293,16 @@ impl NtpControlMessage {
         let second_byte = data[1];
         let opcode = second_byte & 0x1F; // Lower 5 bits
         let flags = second_byte >> 5;    // Upper 3 bits
+
+        println!("flags {:#?}", flags);
         
         // Decode the flags (they were XORed together in pack)
         // Original: ((response << 3) ^ (error << 2) ^ more) << 5
         // We need to extract: response (bit 3), error (bit 2), more (bit 0)
-        let response = (flags >> 3) & 1 == 1;
-        let error = (flags >> 2) & 1 == 1;
+        let response = (flags >> 2) & 1 == 1;
+        let error = (flags >> 1) & 1 == 1;
         let more = flags & 1 == 1;
-        
+
         // Extract sequence (bytes 2-3, big-endian u16)
         let sequence = u16::from_be_bytes([data[2], data[3]]);
         

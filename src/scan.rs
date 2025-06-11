@@ -1,3 +1,4 @@
+use std::cmp;
 use std::collections::HashMap;
 use std::collections::VecDeque;
 use std::os::fd::AsFd;
@@ -16,6 +17,7 @@ use nix::sys::socket::SockaddrIn;
 use nix::sys::socket::SockaddrIn6;
 use crate::identify;
 use crate::monlist;
+use crate::monlist::MonlistRequestStatus;
 use crate::packets;
 use crate::packets::AnyNTPPacket;
 use crate::send;
@@ -56,7 +58,9 @@ pub struct ScanState {
     pub mode6_variables: Option<Mode6Variables>,
     pub maxretries: u32,
     pub supports_monlist: bool,
+    pub monlist_request_status: MonlistRequestStatus,
     current_type: ScanType,
+    rate_kod_received: bool,
 }
 
 pub enum ScanTypeStatus {
@@ -65,14 +69,14 @@ pub enum ScanTypeStatus {
 }
 
 impl ScanState {
-    fn new(address: SockAddrInet, maxretries: u32) -> Self {
+    fn new(address: SockAddrInet, maxretries: u32, spread: Option<u64>) -> Self {
         ScanState {
             address,
             daemon_guess: None,
             versions: HashMap::new(),
             timeout_till: None,
             timeout_on_rate_kod: Duration::from_secs(10),
-            interval: None,
+            interval: spread.map(Duration::from_secs),
             current_type: ScanType::Prepare,
             pkts_received: vec![],
             // TODO remove temporary number
@@ -81,17 +85,15 @@ impl ScanState {
             version_request_status: VersionRequestStatus::new(),
             mode6_variables: None,
             supports_monlist: false,
+            monlist_request_status: MonlistRequestStatus::new(),
+            rate_kod_received: false,
         }
     }
+    /// note that this queues the packets but does not flush them
     fn start_next_scan(&mut self) {
         self.queue.clear();
         match self.current_type {
             ScanType::Prepare => {
-                self.current_type = ScanType::Identify;
-                vvprintln!("{} starting mode 3 identify scan", self.address);
-                identify::init(self);
-            },
-            ScanType::Identify => { 
                 self.current_type = ScanType::Version;
                 vvprintln!("{} starting mode 6 read variables scan", self.address);
                 variables::init(self);
@@ -102,9 +104,14 @@ impl ScanState {
                 monlist::init(self);
             },
             ScanType::Monlist => {
+                self.current_type = ScanType::Identify;
+                vvprintln!("{} starting mode 3 identify scan", self.address);
+                identify::init(self);
+            },
+            ScanType::Identify => { 
                 self.current_type = ScanType::Done;
             },
-            ScanType::Done => unreachable!(),
+            ScanType::Done => {},
         }
     }
     fn choose_sock<T: AsRawFd>(&self, sockfd4: T, sockfd6: T) -> T {
@@ -150,7 +157,7 @@ impl ScanState {
             ScanType::Identify => identify::receive(self, pkt),
             ScanType::Version => variables::receive(self, pkt),
             ScanType::Monlist => monlist::receive(self, pkt),
-            ScanType::Done => unreachable!(),
+            ScanType::Done => ScanTypeStatus::Done,
         }
     }
     fn handle_timeout(&mut self) -> ScanTypeStatus {
@@ -166,17 +173,26 @@ impl ScanState {
         self.timeout_till = Some(SystemTime::now() + self.timeout_on_rate_kod);
         self.timeout_on_rate_kod *= 2;
         match self.interval {
-            Some(d) => self.interval = Some(d * 2),
+            Some(d) => if d < Duration::from_secs(6) {
+                self.interval = Some(cmp::max(Duration::from_secs(6), d*2))
+            } else {
+                self.interval = Some(d * 2)
+            },
             None => self.interval = Some(Duration::from_secs(6)),
         }
         vvprintln!("{}: waiting {}s, interval is {}s", self.address, self.timeout_on_rate_kod.as_secs()/2, self.interval.unwrap().as_secs());
+
+        // an upper limit on how long we are willing to wait
+        if self.timeout_on_rate_kod >= Duration::from_secs(120) {
+            self.current_type = ScanType::Done;
+        }
     }
 
     fn to_result(&self) -> ScanResult {
         let mode4pkt = self.pkts_received
             .iter()
             .filter_map(|p| p.as_standard())
-            .find(|pk| pk.mode == 4);
+            .find(|pk| pk.mode == 4 && pk.refidstr().unwrap_or("") != "RATE");
         let refid = match mode4pkt {
             Some(p) => match p.refidstr() {
                 Some(str) => Some(RefId::Ascii(str.to_string())),
@@ -184,9 +200,15 @@ impl ScanState {
             },
             None => None,
         };
+        let versions = self.versions.clone().iter().map(|(vi, vs)| (*vi, vs.response.as_ref().map(|p| p.version))).collect();
         ScanResult {
+            address: self.address,
             daemon_guess: self.daemon_guess.unwrap(),
             refid: refid,
+            versions,
+            monlist: self.supports_monlist,
+            variables: self.mode6_variables.as_ref().map(|v| v.str.clone()),
+            rate_kod: self.rate_kod_received,
         }
     }
 
@@ -200,29 +222,34 @@ pub enum RefId {
 
 #[derive(Debug)]
 pub struct ScanResult {
+    pub address: SockAddrInet,
     pub daemon_guess: &'static str,
     pub refid: Option<RefId>,
+    pub versions: HashMap<u8, Option<u8>>,
+    pub monlist: bool,
+    pub variables: Option<String>,
+    pub rate_kod: bool,
 }
 
-pub fn start_thread(targets: Vec<SockAddrInet>, retries: u32, concurrent: usize, polltimeout: u32) -> mpsc::Receiver<ScanResult> {
+pub fn start_thread(targets: Vec<SockAddrInet>, retries: u32, concurrent: usize, polltimeout: u32, spread: Option<u64>) -> mpsc::Receiver<ScanResult> {
     let (tx, rx) = mpsc::channel();
     thread::spawn(move || {
-        scan_thread(tx, &targets, retries, concurrent, polltimeout);
+        scan_thread(tx, &targets, retries, concurrent, polltimeout, spread);
     });
     rx
 }
 
-fn scan_thread(tx: mpsc::Sender<ScanResult>, targets: &[SockAddrInet], maxretries: u32, concurrent: usize, polltimeout: u32) {
-    let i = concurrent.min(targets.len());
+fn scan_thread(tx: mpsc::Sender<ScanResult>, targets: &[SockAddrInet], maxretries: u32, concurrent: usize, polltimeout: u32, spread: Option<u64>) {
+    let mut i = concurrent.min(targets.len());
     let mut states: HashMap<SockAddrInet, ScanState> = HashMap::new();
-    for state in targets[0..i].iter().map(|a| ScanState::new(*a, maxretries)) {
+    for state in targets[0..i].iter().map(|a| ScanState::new(*a, maxretries, spread)) {
         if states.contains_key(&state.address) {
             println!("duplicate address {}", state.address);
         } else {
             states.insert(state.address, state);
         }
     }
-    
+
     let sockfd4 = socket::setup_socket(AddressFamily::Inet).expect("Failed to bind IPv4 UDP socket");
     let sockfd6 = socket::setup_socket(AddressFamily::Inet6).expect("Failed to bind IPv6 UDP socket");
 
@@ -272,21 +299,22 @@ fn scan_thread(tx: mpsc::Sender<ScanResult>, targets: &[SockAddrInet], maxretrie
                             // TODO handle DENY and RSTR
                             if let AnyNTPPacket::Standard(pkt) = pkt.clone() {
                                 if pkt.is_kod() && pkt.refidstr() == Some("RATE") {
-                                    vprintln!("{}: Kiss o' Death RATE received", state.address);
+                                    vprintln!("{} Kiss o' Death RATE received", state.address);
+                                    state.rate_kod_received = true;
                                     state.handle_rate_kod();
                                 }
                             }
                             let scanstatus = state.recpkt(&pkt);
                             if matches!(scanstatus, ScanTypeStatus::Done) {
                                 state.start_next_scan();
-                                if matches!(state.current_type, ScanType::Done) {
-                                    done.push(state.address);
-                                }
+                            }
+                            if matches!(state.current_type, ScanType::Done) {
+                                done.push(state.address);
                             }
                             state.flush(state.choose_sock(sockfd4.as_raw_fd(), sockfd6.as_raw_fd())).expect("error flushing");
                         },
                         None => {
-                            println!("received packet from {src}, which isn't part of the target list???");
+                            eprintln!("received packet from {src}, which isn't part of the target list???");
                         },
                     }
                 },
@@ -296,11 +324,13 @@ fn scan_thread(tx: mpsc::Sender<ScanResult>, targets: &[SockAddrInet], maxretrie
         } else {
             vvprintln!("poll timeout");
             for (addr, state) in states.iter_mut() {
-                let scanstatus = state.handle_timeout();
-                if matches!(scanstatus, ScanTypeStatus::Done) {
-                    state.start_next_scan();
-                    if matches!(state.current_type, ScanType::Done) {
-                        done.push(state.address);
+                if state.queue.is_empty() {
+                    let scanstatus = state.handle_timeout();
+                    if matches!(scanstatus, ScanTypeStatus::Done) {
+                        state.start_next_scan();
+                        if matches!(state.current_type, ScanType::Done) {
+                            done.push(state.address);
+                        }
                     }
                 }
                 state.flush(state.choose_sock(sockfd4.as_raw_fd(), sockfd6.as_raw_fd())).expect("error flushing");
@@ -308,6 +338,21 @@ fn scan_thread(tx: mpsc::Sender<ScanResult>, targets: &[SockAddrInet], maxretrie
         }
         for a in done {
             tx.send(states.remove(&a).unwrap().to_result()).unwrap();
+
+            // potentially add a new target
+            if i < targets.len() {
+                let mut new_state = ScanState::new(targets[i], maxretries, spread);
+                if states.contains_key(&new_state.address) {
+                    println!("duplicate address {}", new_state.address);
+                } else {
+                    vvprintln!("added {} to concurrent targets", new_state.address);
+                    new_state.start_next_scan();
+                    // TODO remove unwrap
+                    new_state.flush(new_state.choose_sock(sockfd4.as_raw_fd(), sockfd6.as_raw_fd())).unwrap();
+                    states.insert(new_state.address, new_state);
+                }
+                i += 1;
+            }
         }
         
         if states.is_empty() {
@@ -315,5 +360,7 @@ fn scan_thread(tx: mpsc::Sender<ScanResult>, targets: &[SockAddrInet], maxretrie
         }
 
     }
+
+    vprintln!("a thread finished");
 
 }

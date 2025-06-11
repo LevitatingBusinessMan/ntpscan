@@ -41,7 +41,7 @@ pub fn init(target: &mut ScanState) {
 pub struct VersionState {
     retries: u32,
     xmt: u64,
-    response: Option<NTPPacket>
+    pub response: Option<NTPPacket>
 }
 
 pub fn receive(target: &mut ScanState, pkt: &AnyNTPPacket) -> ScanTypeStatus {
@@ -49,6 +49,10 @@ pub fn receive(target: &mut ScanState, pkt: &AnyNTPPacket) -> ScanTypeStatus {
         AnyNTPPacket::Standard(ntppacket) => ntppacket,
         AnyNTPPacket::Control(_) => {
             vprintln!("{} received control packet during version scan??", target.address);
+            return ScanTypeStatus::Continue;
+        },
+        AnyNTPPacket::Private(p) => {
+            vprintln!("{} received mode 7 packet during version scan?? {:?}", target.address, p);
             return ScanTypeStatus::Continue;
         },
         _ => unreachable!(),
@@ -72,7 +76,7 @@ pub fn receive(target: &mut ScanState, pkt: &AnyNTPPacket) -> ScanTypeStatus {
             }
         },
         None => {
-            println!("{} received og timestamp which we did not send?", target.address);
+            vprintln!("{} received og timestamp which we did not send?", target.address);
         },
     }
 
@@ -145,16 +149,20 @@ pub fn timeout(target: &mut ScanState) -> ScanTypeStatus {
 }
 
 pub fn r#final(state: &mut ScanState) {
-    let mut versions_vec = state.versions
+    vprintln!("{} responded with versions: {}", state.address, craft_version_state_str(&state.versions));
+    state.daemon_guess = Some(daemon_guess(state.versions.clone()));
+}
+
+fn craft_version_state_str(versions: &HashMap<u8, VersionState>) -> String {
+    let mut versions_vec = versions
         .iter()
         .collect::<Vec<(&u8, &VersionState)>>();
-    versions_vec.sort_by_key(|(vi,vs)| **vi);
+    versions_vec.sort_by_key(|(vi, _vs)| **vi);
     let versions_str = versions_vec.iter()
-        .filter_map(|(vi,vs)| if vs.response.is_some() { Some((vi, vs.response.as_ref().unwrap().version)) } else { None })
+        .filter_map(|(vi, vs)| if vs.response.is_some() { Some((vi, vs.response.as_ref().unwrap().version)) } else { None })
         .map(|(vi,vi2)| format!("{}->{}, ", vi, vi2))
         .collect::<String>();
-    println!("{} responded with versions: {}", state.address, versions_str);
-    state.daemon_guess = Some(daemon_guess(state.versions.clone()));
+    versions_str
 }
 
 pub fn daemon_guess(versions: HashMap<u8, VersionState>) -> &'static str {

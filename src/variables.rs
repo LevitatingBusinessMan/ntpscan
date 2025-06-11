@@ -17,7 +17,7 @@ impl VersionRequestStatus {
 }
 
 pub struct Mode6Variables {
-    str: String,
+    pub str: String,
 }
 
 pub fn init(state: &mut ScanState) {
@@ -31,12 +31,21 @@ pub fn receive(state: &mut ScanState, pkt: &AnyNTPPacket) -> ScanTypeStatus {
     match pkt {
         AnyNTPPacket::Control(pkt) => {
             if pkt.opcode == 2 {
-                    println!("{} mode 6 variables response: {}", state.address, pkt.datastr().map(|s| s.trim_end_matches(char::is_whitespace))
-                        .unwrap_or("failed to convert to utf-8"));
-                    state.mode6_variables = Some(Mode6Variables {
-                        str: pkt.datastr().unwrap_or("failed to convert to utf-8").to_owned()
-                    });
-                    return ScanTypeStatus::Done;
+                if pkt.response != true {
+                    vprintln!("{} (mode 6) received request instead of response, quitting", state.address);
+                    // it might've just echo'd our request
+                    return ScanTypeStatus::Done
+                }
+                if pkt.error == true {
+                    vprintln!("{} (mode 6) received error response", state.address);
+                    //return ScanTypeStatus::Done;
+                }
+                println!("{} mode 6 variables response: {}", state.address, pkt.datastr().map(|s| s.trim_end_matches(char::is_whitespace))
+                    .unwrap_or("failed to convert to utf-8"));
+                state.mode6_variables = Some(Mode6Variables {
+                    str: pkt.datastr().unwrap_or("failed to convert to utf-8").to_owned()
+                });
+                return ScanTypeStatus::Done;
             } else {
                 vvprintln!("{} (mode 6) variables command received response with other opcode than 2", state.address)
             }

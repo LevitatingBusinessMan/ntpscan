@@ -59,6 +59,10 @@ pub struct Args {
     #[arg(long, action=clap::ArgAction::SetTrue)]
     pub dry_run: bool,
 
+    /// Interval in-between sent packets in secs
+    #[arg(long)]
+    pub spread: Option<u64>
+
     // /// Attempt daemon identification
     // #[arg(long, action=clap::ArgAction::SetTrue)]
     // pub identify: bool,

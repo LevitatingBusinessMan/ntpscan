@@ -1,22 +1,13 @@
 #![feature(file_buffered)]
-use anyhow::bail;
-use anyhow::Error;
-use anyhow::Result;
-use chrono::DateTime;
 use chrono::Local;
 use clap::Parser;
-use nix::sys::socket::SockFlag;
 use nix::sys::socket::SockaddrIn;
 use nix::sys::socket::SockaddrIn6;
-use nix::sys::socket::SockaddrLike;
-use results::ScanResult;
 use socket::SockAddrInet;
 use std::fs;
 use std::io::BufRead;
-use std::io::Write;
 use std::str::FromStr;
 use std::time::Instant;
-use std::time::SystemTime;
 
 mod send;
 mod socket;
@@ -24,12 +15,12 @@ mod args;
 // mod receive;
 mod packets;
 mod identify;
-mod results;
 mod scan;
 #[macro_use]
 mod log;
 mod monlist;
 mod variables;
+mod save;
 
 fn main() -> anyhow::Result<()> {
     let args = args::Args::parse();
@@ -59,16 +50,31 @@ fn main() -> anyhow::Result<()> {
 
     let start_time = Instant::now();
 
-    let rx = scan::start_thread(addresses, args.retries, args.targets_per_thread, args.poll);
+    let targets_p_thread = addresses.len().div_ceil(args.threads.into());
+
+    let mut receivers = vec![];
+
+    for chunk in addresses.chunks(targets_p_thread) {
+        let rx = scan::start_thread(chunk.to_vec(), args.retries, args.targets_per_thread, args.poll, args.spread);
+        receivers.push(rx);
+    }
+
+    vprintln!("Scanning {} targets using {} threads each scanning at most {} targets concurrently", addresses.len(), receivers.len(), args.targets_per_thread);
 
     loop {
-        match rx.recv() {
-            Ok(res) => {
-                println!("{:?}", res);  
-            },
-            Err(_) => {
-                break;
-            },
+        receivers.retain(|rx| {
+            match rx.recv() {
+                Ok(res) => {
+                    save::save_result(res);
+                    true
+                },
+                Err(_) => {
+                    false
+                },
+            }
+        });
+        if receivers.is_empty() {
+            break;
         }
     }
 
