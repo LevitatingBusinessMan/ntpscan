@@ -293,8 +293,6 @@ impl NtpControlMessage {
         let second_byte = data[1];
         let opcode = second_byte & 0x1F; // Lower 5 bits
         let flags = second_byte >> 5;    // Upper 3 bits
-
-        println!("flags {:#?}", flags);
         
         // Decode the flags (they were XORed together in pack)
         // Original: ((response << 3) ^ (error << 2) ^ more) << 5
