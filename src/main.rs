@@ -5,9 +5,13 @@ use nix::sys::socket::SockaddrIn;
 use nix::sys::socket::SockaddrIn6;
 use socket::SockAddrInet;
 use std::fs;
+use std::fs::File;
 use std::io::BufRead;
+use std::io::Write;
 use std::str::FromStr;
 use std::time::Instant;
+
+use crate::scan::ScanResult;
 
 mod send;
 mod socket;
@@ -35,6 +39,10 @@ fn main() -> anyhow::Result<()> {
         Box::new(file.lines().map(|l| l.expect("malformed line")))
     };
 
+    eprintln!("saving csv to out.csv and variables_out.txt");
+    let mut csv_out_file = File::create("out.csv").unwrap();
+    let mut variables_out_file = File::create("variables_out.txt").unwrap();
+
     // convert addresses
     let addresses: Vec<SockAddrInet> = targets.map(|target| {
         let addr: socket::SockAddrInet;
@@ -61,11 +69,13 @@ fn main() -> anyhow::Result<()> {
 
     vprintln!("Scanning {} targets using {} threads each scanning at most {} targets concurrently", addresses.len(), receivers.len(), args.targets_per_thread);
 
+    csv_out_file.write(ScanResult::csv_header().as_bytes());
+
     loop {
         receivers.retain(|rx| {
             match rx.recv() {
                 Ok(res) => {
-                    save::save_result(res);
+                    save::save_result(res, &mut csv_out_file, &mut variables_out_file);
                     true
                 },
                 Err(_) => {

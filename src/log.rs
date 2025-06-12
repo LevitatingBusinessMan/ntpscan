@@ -1,5 +1,8 @@
+use std::fmt::Debug;
 use std::sync::atomic::AtomicU8;
 use std::sync::atomic::Ordering;
+
+use nix::errno::Errno;
 
 pub static LEVEL: AtomicU8 = AtomicU8::new(0);
 
@@ -37,4 +40,19 @@ macro_rules! vvvprintln {
             println!($($arg)*);
         }
     };
+}
+
+/// trait for logging various errors to stderr
+pub trait Loggable{
+    fn log(&self, context: &'static str) where Self: Debug {
+        eprintln!("{}: {:?}", context, self);
+    }
+}
+
+impl<T> Loggable for nix::Result<T> {
+    fn log(&self, context: &'static str) where Self: Debug {
+        if let Err(errno) = self {
+            eprintln!("{}: {:?}", context, errno);
+        }
+    }
 }

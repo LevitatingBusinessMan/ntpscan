@@ -29,6 +29,7 @@ use crate::variables::VersionRequestStatus;
 use crate::vprintln;
 use crate::vvprintln;
 use crate::vvvprintln;
+use crate::log::Loggable;
 
 /// What scan type is being done currently
 #[derive(Debug)]
@@ -79,8 +80,7 @@ impl ScanState {
             interval: spread.map(Duration::from_secs),
             current_type: ScanType::Prepare,
             pkts_received: vec![],
-            // TODO remove temporary number
-            maxretries: maxretries,
+            maxretries,
             queue: VecDeque::new(),
             version_request_status: VersionRequestStatus::new(),
             mode6_variables: None,
@@ -203,7 +203,7 @@ impl ScanState {
         let versions = self.versions.clone().iter().map(|(vi, vs)| (*vi, vs.response.as_ref().map(|p| p.version))).collect();
         ScanResult {
             address: self.address,
-            daemon_guess: self.daemon_guess.unwrap(),
+            daemon_guess: self.daemon_guess.unwrap_or(""),
             refid: refid,
             versions,
             monlist: self.supports_monlist,
@@ -218,6 +218,32 @@ impl ScanState {
 pub enum RefId {
     Ascii(String),
     Other([u8; 4]),
+}
+
+impl RefId {
+    pub fn to_csv_str(refid: &Option<RefId>) -> String {
+        match refid {
+            Some(RefId::Ascii(ascii_str)) => {
+                ascii_str.as_bytes().iter()
+                    .map(|&b| {
+                        if b.is_ascii_graphic() || b == b' ' {
+                            (b as char).to_string()
+                        } else {
+                            format!("\\x{:02x}", b)
+                        }
+                    })
+                    .collect()
+            },
+            Some(Self::Other(bytes)) => {
+                bytes.iter()
+                    .map(|&b| {
+                        format!("\\x{:02x}", b)
+                    })
+                    .collect()
+            },
+            None => "".to_string(),
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -253,13 +279,10 @@ fn scan_thread(tx: mpsc::Sender<ScanResult>, targets: &[SockAddrInet], maxretrie
     let sockfd4 = socket::setup_socket(AddressFamily::Inet).expect("Failed to bind IPv4 UDP socket");
     let sockfd6 = socket::setup_socket(AddressFamily::Inet6).expect("Failed to bind IPv6 UDP socket");
 
-    // TODO the following code usees various unwraps and expects that have to be handled appropiately
-
     // initialize the first scan for all targets
     for (_, state) in states.iter_mut() {
         state.start_next_scan();
-        // TODO remove unwrap
-        state.flush(state.choose_sock(sockfd4.as_raw_fd(), sockfd6.as_raw_fd())).unwrap();
+        state.flush(state.choose_sock(sockfd4.as_raw_fd(), sockfd6.as_raw_fd())).expect("error flushing");
     }
 
     let mut pollfds = [
@@ -302,6 +325,9 @@ fn scan_thread(tx: mpsc::Sender<ScanResult>, targets: &[SockAddrInet], maxretrie
                                     vprintln!("{} Kiss o' Death RATE received", state.address);
                                     state.rate_kod_received = true;
                                     state.handle_rate_kod();
+                                } else if pkt.is_kod() && (pkt.refidstr() == Some("DENY") || pkt.refidstr() == Some("RSTR") ) {
+                                    eprintln!("{} Kiss o' Death {} received, quitting", state.address, pkt.refidstr().unwrap());
+                                    state.current_type = ScanType::Done;
                                 }
                             }
                             let scanstatus = state.recpkt(&pkt);
@@ -343,12 +369,11 @@ fn scan_thread(tx: mpsc::Sender<ScanResult>, targets: &[SockAddrInet], maxretrie
             if i < targets.len() {
                 let mut new_state = ScanState::new(targets[i], maxretries, spread);
                 if states.contains_key(&new_state.address) {
-                    println!("duplicate address {}", new_state.address);
+                    eprintln!("duplicate address {}", new_state.address);
                 } else {
                     vvprintln!("added {} to concurrent targets", new_state.address);
                     new_state.start_next_scan();
-                    // TODO remove unwrap
-                    new_state.flush(new_state.choose_sock(sockfd4.as_raw_fd(), sockfd6.as_raw_fd())).unwrap();
+                    new_state.flush(new_state.choose_sock(sockfd4.as_raw_fd(), sockfd6.as_raw_fd())).expect("error flushing");
                     states.insert(new_state.address, new_state);
                 }
                 i += 1;
