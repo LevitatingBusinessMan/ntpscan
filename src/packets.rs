@@ -317,13 +317,14 @@ impl NtpControlMessage {
         let count = u16::from_be_bytes([data[10], data[11]]);
         
         // Verify we have enough data for the payload
-        let expected_len = 12 + count as usize;
+        let expected_len = 12 + offset as usize + count as usize;
         if data.len() < expected_len {
+            vvprintln!("payload is reported to be {} bytes, but there are only {} bytes", count, (data.len() - 12 - offset as usize));
             return None;
         }
         
         // Extract the actual data payload
-        let payload = data[12 + offset as usize .. 12 + count as usize].to_vec();
+        let payload = data[12 + offset as usize .. 12 + count as usize + offset as usize].to_vec();
         
         Some(Self {
             version,
