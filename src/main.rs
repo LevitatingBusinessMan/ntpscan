@@ -69,7 +69,7 @@ fn main() -> anyhow::Result<()> {
 
     vprintln!("Scanning {} targets using {} threads each scanning at most {} targets concurrently", addresses.len(), receivers.len(), args.targets_per_thread);
 
-    csv_out_file.write(ScanResult::csv_header().as_bytes());
+    csv_out_file.write(ScanResult::csv_header().as_bytes()).expect("failed to write csv header");
 
     loop {
         receivers.retain(|rx| {
