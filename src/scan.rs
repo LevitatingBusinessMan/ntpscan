@@ -310,7 +310,12 @@ fn scan_thread(tx: mpsc::Sender<ScanResult>, targets: &[SockAddrInet], maxretrie
             }
             match recvfromres {
                 Ok((nread, Some(src))) => {
-                    let pkt = packets::parse(&recvbuf[0..nread]).expect("Failed to parse pkt");
+                    let pkt_option = packets::parse(&recvbuf[0..nread]);
+                    if pkt_option.is_none() {
+                        vprintln!("failed to parse {nread} byte pkt from {src}");
+                        continue;
+                    }
+                    let pkt = pkt_option.unwrap();
                     vvprintln!("{nread} bytes from {src}");
                     vvprintln!("{pkt:?}");
 
