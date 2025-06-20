@@ -62,6 +62,8 @@ pub struct ScanState {
     pub monlist_request_status: MonlistRequestStatus,
     current_type: ScanType,
     rate_kod_received: bool,
+    /// should the identify scan be executed
+    identify: bool,
 }
 
 pub enum ScanTypeStatus {
@@ -70,7 +72,7 @@ pub enum ScanTypeStatus {
 }
 
 impl ScanState {
-    fn new(address: SockAddrInet, maxretries: u32, spread: Option<u64>) -> Self {
+    fn new(address: SockAddrInet, maxretries: u32, spread: Option<u64>, identify: bool) -> Self {
         ScanState {
             address,
             daemon_guess: None,
@@ -87,6 +89,7 @@ impl ScanState {
             supports_monlist: false,
             monlist_request_status: MonlistRequestStatus::new(),
             rate_kod_received: false,
+            identify,
         }
     }
     /// note that this queues the packets but does not flush them
@@ -104,9 +107,14 @@ impl ScanState {
                 monlist::init(self);
             },
             ScanType::Monlist => {
-                self.current_type = ScanType::Identify;
-                vvprintln!("{} starting mode 3 identify scan", self.address);
-                identify::init(self);
+                if self.identify {
+                    self.current_type = ScanType::Identify;
+                    vvprintln!("{} starting mode 3 identify scan", self.address);
+                    identify::init(self);
+                }
+                else {
+                    self.current_type = ScanType::Done;
+                }
             },
             ScanType::Identify => { 
                 self.current_type = ScanType::Done;
@@ -257,18 +265,18 @@ pub struct ScanResult {
     pub rate_kod: bool,
 }
 
-pub fn start_thread(targets: Vec<SockAddrInet>, retries: u32, concurrent: usize, polltimeout: u32, spread: Option<u64>) -> mpsc::Receiver<ScanResult> {
+pub fn start_thread(targets: Vec<SockAddrInet>, retries: u32, concurrent: usize, polltimeout: u32, spread: Option<u64>, identify: bool) -> mpsc::Receiver<ScanResult> {
     let (tx, rx) = mpsc::channel();
     thread::spawn(move || {
-        scan_thread(tx, &targets, retries, concurrent, polltimeout, spread);
+        scan_thread(tx, &targets, retries, concurrent, polltimeout, spread, identify);
     });
     rx
 }
 
-fn scan_thread(tx: mpsc::Sender<ScanResult>, targets: &[SockAddrInet], maxretries: u32, concurrent: usize, polltimeout: u32, spread: Option<u64>) {
+fn scan_thread(tx: mpsc::Sender<ScanResult>, targets: &[SockAddrInet], maxretries: u32, concurrent: usize, polltimeout: u32, spread: Option<u64>, identify: bool) {
     let mut i = concurrent.min(targets.len());
     let mut states: HashMap<SockAddrInet, ScanState> = HashMap::new();
-    for state in targets[0..i].iter().map(|a| ScanState::new(*a, maxretries, spread)) {
+    for state in targets[0..i].iter().map(|a| ScanState::new(*a, maxretries, spread, identify)) {
         if states.contains_key(&state.address) {
             println!("duplicate address {}", state.address);
         } else {
@@ -372,7 +380,7 @@ fn scan_thread(tx: mpsc::Sender<ScanResult>, targets: &[SockAddrInet], maxretrie
 
             // potentially add a new target
             if i < targets.len() {
-                let mut new_state = ScanState::new(targets[i], maxretries, spread);
+                let mut new_state = ScanState::new(targets[i], maxretries, spread, identify);
                 if states.contains_key(&new_state.address) {
                     eprintln!("duplicate address {}", new_state.address);
                 } else {

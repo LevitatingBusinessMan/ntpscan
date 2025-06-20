@@ -62,6 +62,7 @@ pub fn receive(state: &mut ScanState, pkt: &AnyNTPPacket) -> ScanTypeStatus {
 pub fn timeout(state: &mut ScanState) -> ScanTypeStatus {
     if state.monlist_request_status.retries < state.maxretries {
         init(state);
+        state.monlist_request_status.retries += 1;
         ScanTypeStatus::Continue
     } else {
         vprintln!("{} (mode 7) monlist timed out", state.address);

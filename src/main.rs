@@ -63,7 +63,7 @@ fn main() -> anyhow::Result<()> {
     let mut receivers = vec![];
 
     for chunk in addresses.chunks(targets_p_thread) {
-        let rx = scan::start_thread(chunk.to_vec(), args.retries, args.targets_per_thread, args.poll, args.spread);
+        let rx = scan::start_thread(chunk.to_vec(), args.retries, args.targets_per_thread, args.poll, args.spread, args.identify);
         receivers.push(rx);
     }
 

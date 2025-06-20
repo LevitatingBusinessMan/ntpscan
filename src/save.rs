@@ -11,7 +11,7 @@ pub fn save_result(res: ScanResult, csv_out: &mut File, variables_out: &mut File
     versions_vec.sort_by_key(|(k,v)| *k);
     let versions_str = versions_vec.iter().map(|(k,v)| format!("{}->{}, ", k, v)).collect::<String>();
 
-    if versions_vec.is_empty() {
+    if versions_vec.is_empty() && !res.monlist && res.variables.is_none() {
         println!("{} offline", res.address);
     } else {
         println!("{} refid: {:?}, versions: {}, monlist: {}, variables: {} {}",

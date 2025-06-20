@@ -61,15 +61,15 @@ pub struct Args {
 
     /// Interval in-between sent packets in secs
     #[arg(long)]
-    pub spread: Option<u64>
+    pub spread: Option<u64>,
 
     // /// Attempt daemon identification
-    // #[arg(long, action=clap::ArgAction::SetTrue)]
-    // pub identify: bool,
+    #[arg(long="no-identify", action = clap::ArgAction::SetFalse)]
+    pub identify: bool,
 
-    // /// Do not attempt daemon identification
-    // #[arg(long, action=clap::ArgAction::SetFalse)]
-    // pub no_identify: bool,
+    /// Do not attempt daemon identification
+    #[arg(long="identify", overrides_with = "identify")]
+    pub _no_identify: bool,
 }
 
 #[derive(ValueEnum, Clone, Debug)]
